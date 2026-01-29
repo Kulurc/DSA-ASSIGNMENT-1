@@ -1,5 +1,5 @@
-// OpenGL + ImGui Boilerplate
-// Required libraries: GLFW, GLEW, ImGui
+// Finance Tracker App
+// Using OpenGL + ImGui
 
 #include <GL/glew.h>
 #include <GLFW/glfw3.h>
@@ -9,10 +9,93 @@
 #include "imgui_impl_opengl3.h"
 
 #include <iostream>
+#include <vector>
+#include <string>
+#include <ctime>
+#include <cstring>
 
 // Window dimensions
 const unsigned int WINDOW_WIDTH = 1280;
 const unsigned int WINDOW_HEIGHT = 720;
+
+// Transaction types
+enum class TransactionType
+{
+    Income,
+    Expense,
+    Transfer
+};
+
+// Transaction structure
+struct Transaction
+{
+    TransactionType type;
+    char description[256];
+    float amount;
+    char category[64];
+    char date[32];
+    char fromAccount[64]; // For transfers
+    char toAccount[64];   // For transfers
+
+    Transaction()
+    {
+        type = TransactionType::Income;
+        memset(description, 0, sizeof(description));
+        memset(category, 0, sizeof(category));
+        memset(date, 0, sizeof(date));
+        memset(fromAccount, 0, sizeof(fromAccount));
+        memset(toAccount, 0, sizeof(toAccount));
+        amount = 0.0f;
+
+        // Set default date to today
+        time_t now = time(nullptr);
+        struct tm timeinfo;
+        localtime_s(&timeinfo, &now);
+        strftime(date, sizeof(date), "%Y-%m-%d", &timeinfo);
+    }
+};
+
+// Global transaction storage
+std::vector<Transaction> g_transactions;
+
+// Get current date as string
+std::string getCurrentDate()
+{
+    time_t now = time(nullptr);
+    struct tm timeinfo;
+    localtime_s(&timeinfo, &now);
+    char buffer[32];
+    strftime(buffer, sizeof(buffer), "%Y-%m-%d", &timeinfo);
+    return std::string(buffer);
+}
+
+// Calculate totals
+float calculateTotalIncome()
+{
+    float total = 0.0f;
+    for (const auto &t : g_transactions)
+    {
+        if (t.type == TransactionType::Income)
+            total += t.amount;
+    }
+    return total;
+}
+
+float calculateTotalExpense()
+{
+    float total = 0.0f;
+    for (const auto &t : g_transactions)
+    {
+        if (t.type == TransactionType::Expense)
+            total += t.amount;
+    }
+    return total;
+}
+
+float calculateBalance()
+{
+    return calculateTotalIncome() - calculateTotalExpense();
+}
 
 // Callback for window resize
 void framebuffer_size_callback(GLFWwindow *window, int width, int height)
@@ -42,7 +125,7 @@ int main()
     glfwWindowHint(GLFW_OPENGL_PROFILE, GLFW_OPENGL_CORE_PROFILE);
 
     // Create window
-    GLFWwindow *window = glfwCreateWindow(WINDOW_WIDTH, WINDOW_HEIGHT, "OpenGL + ImGui", nullptr, nullptr);
+    GLFWwindow *window = glfwCreateWindow(WINDOW_WIDTH, WINDOW_HEIGHT, "Finance Tracker", nullptr, nullptr);
     if (!window)
     {
         std::cerr << "Failed to create GLFW window" << std::endl;
@@ -80,9 +163,38 @@ int main()
     ImGui_ImplOpenGL3_Init("#version 330");
 
     // Application state
-    bool show_demo_window = true;
-    bool show_another_window = false;
     ImVec4 clear_color = ImVec4(0.1f, 0.1f, 0.1f, 1.0f);
+    bool show_add_transaction_window = false;
+    Transaction new_transaction;
+    int selected_tab_for_new = 0; // 0=Income, 1=Expense, 2=Transfer
+
+    // Add some sample transactions
+    {
+        Transaction t1;
+        t1.type = TransactionType::Income;
+        strcpy_s(t1.description, "Monthly Salary");
+        strcpy_s(t1.category, "Salary");
+        t1.amount = 5000.0f;
+        strcpy_s(t1.date, "2026-01-15");
+        g_transactions.push_back(t1);
+
+        Transaction t2;
+        t2.type = TransactionType::Expense;
+        strcpy_s(t2.description, "Grocery Shopping");
+        strcpy_s(t2.category, "Food");
+        t2.amount = 150.0f;
+        strcpy_s(t2.date, "2026-01-20");
+        g_transactions.push_back(t2);
+
+        Transaction t3;
+        t3.type = TransactionType::Transfer;
+        strcpy_s(t3.description, "Savings Transfer");
+        strcpy_s(t3.fromAccount, "Checking");
+        strcpy_s(t3.toAccount, "Savings");
+        t3.amount = 500.0f;
+        strcpy_s(t3.date, "2026-01-25");
+        g_transactions.push_back(t3);
+    }
 
     // Main loop
     while (!glfwWindowShouldClose(window))
@@ -96,41 +208,255 @@ int main()
         ImGui_ImplGlfw_NewFrame();
         ImGui::NewFrame();
 
-        // 1. Show the big demo window (for reference and learning)
-        if (show_demo_window)
-            ImGui::ShowDemoWindow(&show_demo_window);
-
-        // 2. Show a simple window that we create ourselves
+        // Main Finance Tracker Window
         {
-            static float f = 0.0f;
-            static int counter = 0;
+            ImGui::SetNextWindowPos(ImVec2(20, 20), ImGuiCond_FirstUseEver);
+            ImGui::SetNextWindowSize(ImVec2(800, 600), ImGuiCond_FirstUseEver);
+            ImGui::Begin("Finance Tracker", nullptr, ImGuiWindowFlags_MenuBar);
 
-            ImGui::Begin("Hello, world!");
+            // Menu bar
+            if (ImGui::BeginMenuBar())
+            {
+                if (ImGui::BeginMenu("File"))
+                {
+                    if (ImGui::MenuItem("Exit"))
+                        glfwSetWindowShouldClose(window, true);
+                    ImGui::EndMenu();
+                }
+                ImGui::EndMenuBar();
+            }
 
-            ImGui::Text("This is a sample ImGui window.");
-            ImGui::Checkbox("Demo Window", &show_demo_window);
-            ImGui::Checkbox("Another Window", &show_another_window);
+            // Summary section
+            ImGui::Text("=== Account Summary ===");
+            ImGui::Separator();
+            ImGui::TextColored(ImVec4(0.4f, 1.0f, 0.4f, 1.0f), "Total Income:  $%.2f", calculateTotalIncome());
+            ImGui::TextColored(ImVec4(1.0f, 0.4f, 0.4f, 1.0f), "Total Expense: $%.2f", calculateTotalExpense());
+            float balance = calculateBalance();
+            ImVec4 balanceColor = balance >= 0 ? ImVec4(0.4f, 1.0f, 0.4f, 1.0f) : ImVec4(1.0f, 0.4f, 0.4f, 1.0f);
+            ImGui::TextColored(balanceColor, "Balance:       $%.2f", balance);
+            ImGui::Separator();
+            ImGui::Spacing();
 
-            ImGui::SliderFloat("float", &f, 0.0f, 1.0f);
-            ImGui::ColorEdit3("clear color", (float *)&clear_color);
+            // Add transaction button
+            if (ImGui::Button("+ Add New Transaction", ImVec2(200, 30)))
+            {
+                show_add_transaction_window = true;
+                new_transaction = Transaction(); // Reset
+            }
 
-            if (ImGui::Button("Button"))
-                counter++;
-            ImGui::SameLine();
-            ImGui::Text("counter = %d", counter);
+            ImGui::Spacing();
+            ImGui::Separator();
+            ImGui::Spacing();
 
-            ImGui::Text("Application average %.3f ms/frame (%.1f FPS)",
-                        1000.0f / io.Framerate, io.Framerate);
+            // Transactions tabs
+            if (ImGui::BeginTabBar("TransactionTabs"))
+            {
+                // Income Tab
+                if (ImGui::BeginTabItem("Income"))
+                {
+                    ImGui::Text("Income Transactions");
+                    ImGui::Separator();
+
+                    if (ImGui::BeginTable("IncomeTable", 4, ImGuiTableFlags_Borders | ImGuiTableFlags_RowBg | ImGuiTableFlags_Resizable))
+                    {
+                        ImGui::TableSetupColumn("Date", ImGuiTableColumnFlags_WidthFixed, 100.0f);
+                        ImGui::TableSetupColumn("Description", ImGuiTableColumnFlags_WidthStretch);
+                        ImGui::TableSetupColumn("Category", ImGuiTableColumnFlags_WidthFixed, 120.0f);
+                        ImGui::TableSetupColumn("Amount", ImGuiTableColumnFlags_WidthFixed, 100.0f);
+                        ImGui::TableHeadersRow();
+
+                        for (size_t i = 0; i < g_transactions.size(); i++)
+                        {
+                            const auto &t = g_transactions[i];
+                            if (t.type == TransactionType::Income)
+                            {
+                                ImGui::TableNextRow();
+                                ImGui::TableNextColumn();
+                                ImGui::Text("%s", t.date);
+                                ImGui::TableNextColumn();
+                                ImGui::Text("%s", t.description);
+                                ImGui::TableNextColumn();
+                                ImGui::Text("%s", t.category);
+                                ImGui::TableNextColumn();
+                                ImGui::TextColored(ImVec4(0.4f, 1.0f, 0.4f, 1.0f), "+$%.2f", t.amount);
+                            }
+                        }
+                        ImGui::EndTable();
+                    }
+                    ImGui::EndTabItem();
+                }
+
+                // Expense Tab
+                if (ImGui::BeginTabItem("Expense"))
+                {
+                    ImGui::Text("Expense Transactions");
+                    ImGui::Separator();
+
+                    if (ImGui::BeginTable("ExpenseTable", 4, ImGuiTableFlags_Borders | ImGuiTableFlags_RowBg | ImGuiTableFlags_Resizable))
+                    {
+                        ImGui::TableSetupColumn("Date", ImGuiTableColumnFlags_WidthFixed, 100.0f);
+                        ImGui::TableSetupColumn("Description", ImGuiTableColumnFlags_WidthStretch);
+                        ImGui::TableSetupColumn("Category", ImGuiTableColumnFlags_WidthFixed, 120.0f);
+                        ImGui::TableSetupColumn("Amount", ImGuiTableColumnFlags_WidthFixed, 100.0f);
+                        ImGui::TableHeadersRow();
+
+                        for (size_t i = 0; i < g_transactions.size(); i++)
+                        {
+                            const auto &t = g_transactions[i];
+                            if (t.type == TransactionType::Expense)
+                            {
+                                ImGui::TableNextRow();
+                                ImGui::TableNextColumn();
+                                ImGui::Text("%s", t.date);
+                                ImGui::TableNextColumn();
+                                ImGui::Text("%s", t.description);
+                                ImGui::TableNextColumn();
+                                ImGui::Text("%s", t.category);
+                                ImGui::TableNextColumn();
+                                ImGui::TextColored(ImVec4(1.0f, 0.4f, 0.4f, 1.0f), "-$%.2f", t.amount);
+                            }
+                        }
+                        ImGui::EndTable();
+                    }
+                    ImGui::EndTabItem();
+                }
+
+                // Transfer Tab
+                if (ImGui::BeginTabItem("Transfer"))
+                {
+                    ImGui::Text("Transfer Transactions");
+                    ImGui::Separator();
+
+                    if (ImGui::BeginTable("TransferTable", 5, ImGuiTableFlags_Borders | ImGuiTableFlags_RowBg | ImGuiTableFlags_Resizable))
+                    {
+                        ImGui::TableSetupColumn("Date", ImGuiTableColumnFlags_WidthFixed, 100.0f);
+                        ImGui::TableSetupColumn("Description", ImGuiTableColumnFlags_WidthStretch);
+                        ImGui::TableSetupColumn("From", ImGuiTableColumnFlags_WidthFixed, 100.0f);
+                        ImGui::TableSetupColumn("To", ImGuiTableColumnFlags_WidthFixed, 100.0f);
+                        ImGui::TableSetupColumn("Amount", ImGuiTableColumnFlags_WidthFixed, 100.0f);
+                        ImGui::TableHeadersRow();
+
+                        for (size_t i = 0; i < g_transactions.size(); i++)
+                        {
+                            const auto &t = g_transactions[i];
+                            if (t.type == TransactionType::Transfer)
+                            {
+                                ImGui::TableNextRow();
+                                ImGui::TableNextColumn();
+                                ImGui::Text("%s", t.date);
+                                ImGui::TableNextColumn();
+                                ImGui::Text("%s", t.description);
+                                ImGui::TableNextColumn();
+                                ImGui::Text("%s", t.fromAccount);
+                                ImGui::TableNextColumn();
+                                ImGui::Text("%s", t.toAccount);
+                                ImGui::TableNextColumn();
+                                ImGui::TextColored(ImVec4(0.4f, 0.7f, 1.0f, 1.0f), "$%.2f", t.amount);
+                            }
+                        }
+                        ImGui::EndTable();
+                    }
+                    ImGui::EndTabItem();
+                }
+
+                ImGui::EndTabBar();
+            }
+
+            ImGui::Text("\nTotal Transactions: %zu", g_transactions.size());
             ImGui::End();
         }
 
-        // 3. Show another simple window
-        if (show_another_window)
+        // Add Transaction Window
+        if (show_add_transaction_window)
         {
-            ImGui::Begin("Another Window", &show_another_window);
-            ImGui::Text("Hello from another window!");
-            if (ImGui::Button("Close Me"))
-                show_another_window = false;
+            ImGui::SetNextWindowSize(ImVec2(400, 350), ImGuiCond_FirstUseEver);
+            ImGui::Begin("Add New Transaction", &show_add_transaction_window);
+
+            if (ImGui::BeginTabBar("NewTransactionTabs"))
+            {
+                // Income Tab
+                if (ImGui::BeginTabItem("Income"))
+                {
+                    selected_tab_for_new = 0;
+                    new_transaction.type = TransactionType::Income;
+
+                    ImGui::InputText("Date", new_transaction.date, sizeof(new_transaction.date));
+                    ImGui::InputText("Description", new_transaction.description, sizeof(new_transaction.description));
+                    ImGui::InputText("Category", new_transaction.category, sizeof(new_transaction.category));
+                    ImGui::InputFloat("Amount ($)", &new_transaction.amount, 1.0f, 100.0f, "%.2f");
+
+                    ImGui::Spacing();
+                    if (ImGui::Button("Add Income", ImVec2(120, 30)))
+                    {
+                        if (new_transaction.amount > 0)
+                        {
+                            g_transactions.push_back(new_transaction);
+                            new_transaction = Transaction();
+                            show_add_transaction_window = false;
+                        }
+                    }
+                    ImGui::EndTabItem();
+                }
+
+                // Expense Tab
+                if (ImGui::BeginTabItem("Expense"))
+                {
+                    selected_tab_for_new = 1;
+                    new_transaction.type = TransactionType::Expense;
+
+                    ImGui::InputText("Date", new_transaction.date, sizeof(new_transaction.date));
+                    ImGui::InputText("Description", new_transaction.description, sizeof(new_transaction.description));
+                    ImGui::InputText("Category", new_transaction.category, sizeof(new_transaction.category));
+                    ImGui::InputFloat("Amount ($)", &new_transaction.amount, 1.0f, 100.0f, "%.2f");
+
+                    ImGui::Spacing();
+                    if (ImGui::Button("Add Expense", ImVec2(120, 30)))
+                    {
+                        if (new_transaction.amount > 0)
+                        {
+                            g_transactions.push_back(new_transaction);
+                            new_transaction = Transaction();
+                            show_add_transaction_window = false;
+                        }
+                    }
+                    ImGui::EndTabItem();
+                }
+
+                // Transfer Tab
+                if (ImGui::BeginTabItem("Transfer"))
+                {
+                    selected_tab_for_new = 2;
+                    new_transaction.type = TransactionType::Transfer;
+
+                    ImGui::InputText("Date", new_transaction.date, sizeof(new_transaction.date));
+                    ImGui::InputText("Description", new_transaction.description, sizeof(new_transaction.description));
+                    ImGui::InputText("From Account", new_transaction.fromAccount, sizeof(new_transaction.fromAccount));
+                    ImGui::InputText("To Account", new_transaction.toAccount, sizeof(new_transaction.toAccount));
+                    ImGui::InputFloat("Amount ($)", &new_transaction.amount, 1.0f, 100.0f, "%.2f");
+
+                    ImGui::Spacing();
+                    if (ImGui::Button("Add Transfer", ImVec2(120, 30)))
+                    {
+                        if (new_transaction.amount > 0)
+                        {
+                            g_transactions.push_back(new_transaction);
+                            new_transaction = Transaction();
+                            show_add_transaction_window = false;
+                        }
+                    }
+                    ImGui::EndTabItem();
+                }
+
+                ImGui::EndTabBar();
+            }
+
+            ImGui::Spacing();
+            if (ImGui::Button("Cancel", ImVec2(80, 25)))
+            {
+                show_add_transaction_window = false;
+                new_transaction = Transaction();
+            }
+
             ImGui::End();
         }
 
