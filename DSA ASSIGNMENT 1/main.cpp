@@ -40,19 +40,20 @@ struct Transaction
     TransactionType type;
     char description[256];
     float amount;
-    char category[64];
+    std::string category;
     char date[32];
-    char fromAccount[64]; // For transfers
-    char toAccount[64];   // For transfers
+
+    std::string fromAccount;    // For transfers
+    std::string toAccount;      // For transfers
 
     Transaction()
     {
         type = TransactionType::Income;
         memset(description, 0, sizeof(description));
-        memset(category, 0, sizeof(category));
+        category = "";
         memset(date, 0, sizeof(date));
-        memset(fromAccount, 0, sizeof(fromAccount));
-        memset(toAccount, 0, sizeof(toAccount));
+        fromAccount = "";
+        toAccount = "";
         amount = 0.0f;
 
         // Set default date to today
@@ -66,7 +67,6 @@ struct Transaction
 // Global transaction storage
 std::vector<Transaction> g_transactions;
 
-
 constexpr int TEXT_BUFFER = 256;
 // category list
 std::vector<std::string> categories{"FOOD", "SOCIAL", "SHOPPING", "TRANSPORT", "EDUCATION"};
@@ -74,6 +74,10 @@ std::string _currentCategory;
 char _inputCategoryBuffer[TEXT_BUFFER]{'\0'};
 static int _categoryIndex = 0;
 bool _inputFieldEmpty{ true };
+
+std::vector<std::string> accounts{ "SAVINGS", "EXPENSES", "CPF" };
+static int _fromAccountIndex = 0;
+static int _toAccountIndex = 0;
 
 // Get current date as string
 std::string getCurrentDate()
@@ -191,7 +195,8 @@ int main()
         Transaction t1;
         t1.type = TransactionType::Income;
         strcpy_s(t1.description, "Monthly Salary");
-        strcpy_s(t1.category, "Salary");
+        /*strcpy_s(t1.category, "Salary");*/
+        t1.category = "SALARY";
         t1.amount = 5000.0f;
         strcpy_s(t1.date, "2026-01-15");
         g_transactions.push_back(t1);
@@ -199,7 +204,8 @@ int main()
         Transaction t2;
         t2.type = TransactionType::Expense;
         strcpy_s(t2.description, "Grocery Shopping");
-        strcpy_s(t2.category, "Food");
+        /*strcpy_s(t2.category, "Food");*/
+        t2.category = "FOOD";
         t2.amount = 150.0f;
         strcpy_s(t2.date, "2026-01-20");
         g_transactions.push_back(t2);
@@ -207,8 +213,10 @@ int main()
         Transaction t3;
         t3.type = TransactionType::Transfer;
         strcpy_s(t3.description, "Savings Transfer");
-        strcpy_s(t3.fromAccount, "Checking");
-        strcpy_s(t3.toAccount, "Savings");
+
+        t3.fromAccount = "Checking";
+        t3.toAccount = "Savings";
+        
         t3.amount = 500.0f;
         strcpy_s(t3.date, "2026-01-25");
         g_transactions.push_back(t3);
@@ -389,9 +397,9 @@ int main()
                                     ImGui::TableNextColumn();
                                     ImGui::Text("%s", t.description);
                                     ImGui::TableNextColumn();
-                                    ImGui::Text("%s", t.fromAccount);
+                                    ImGui::Text(t.fromAccount.c_str());
                                     ImGui::TableNextColumn();
-                                    ImGui::Text("%s", t.toAccount);
+                                    ImGui::Text(t.toAccount.c_str());
                                     ImGui::TableNextColumn();
                                     ImGui::TextColored(ImVec4(0.4f, 0.7f, 1.0f, 1.0f), "$%.2f", t.amount);
                                 }
@@ -445,14 +453,16 @@ int main()
                         // Category/Account
                         ImGui::TableNextColumn();
                         if (t.type == TransactionType::Transfer)
-                            ImGui::Text("%s", t.fromAccount);
+                            ImGui::Text(t.fromAccount.c_str());
                         else
-                            ImGui::Text("%s", t.category);
+                            ImGui::Text(t.category.c_str());
 
                         // Details (To account for transfers, empty for others)
                         ImGui::TableNextColumn();
-                        if (t.type == TransactionType::Transfer)
-                            ImGui::Text("-> %s", t.toAccount);
+                        if (t.type == TransactionType::Transfer) {
+                            std::string toAccountString = "-> " + t.toAccount;
+                            ImGui::Text(toAccountString.c_str());
+                        }
                         else
                             ImGui::Text("-");
 
@@ -526,7 +536,24 @@ int main()
 
                     ImGui::InputText("Date", new_transaction.date, sizeof(new_transaction.date));
                     ImGui::InputText("Description", new_transaction.description, sizeof(new_transaction.description));
-                    ImGui::InputText("Category", new_transaction.category, sizeof(new_transaction.category));
+                    
+                    //old category system using char
+                    /*ImGui::InputText("Category", new_transaction.category, sizeof(new_transaction.category));*/
+
+                    //new category using strings
+                    if (ImGui::BeginCombo("##Category", categories[_categoryIndex].c_str())) {
+                        for (int i = 0; i < categories.size(); ++i) {
+                            const bool isSelected = (_categoryIndex == i);
+                            if (ImGui::Selectable(categories[i].c_str(), isSelected)) _categoryIndex = i;
+                            if (isSelected) ImGui::SetItemDefaultFocus();
+                        }
+                        ImGui::EndCombo();
+                    }
+                    new_transaction.category = categories[_categoryIndex].c_str();
+
+                    ImGui::SameLine();
+                    ImGui::Text("Category");
+
                     ImGui::InputFloat("Amount ($)", &new_transaction.amount, 1.0f, 100.0f, "%.2f");
 
                     ImGui::Spacing();
@@ -550,7 +577,18 @@ int main()
 
                     ImGui::InputText("Date", new_transaction.date, sizeof(new_transaction.date));
                     ImGui::InputText("Description", new_transaction.description, sizeof(new_transaction.description));
-                    ImGui::InputText("Category", new_transaction.category, sizeof(new_transaction.category));
+                    
+                    //new category using strings
+                    if (ImGui::BeginCombo("##Category", categories[_categoryIndex].c_str())) {
+                        for (int i = 0; i < categories.size(); ++i) {
+                            const bool isSelected = (_categoryIndex == i);
+                            if (ImGui::Selectable(categories[i].c_str(), isSelected)) _categoryIndex = i;
+                            if (isSelected) ImGui::SetItemDefaultFocus();
+                        }
+                        ImGui::EndCombo();
+                    }
+                    new_transaction.category = categories[_categoryIndex].c_str();
+
                     ImGui::InputFloat("Amount ($)", &new_transaction.amount, 1.0f, 100.0f, "%.2f");
 
                     ImGui::Spacing();
@@ -574,8 +612,29 @@ int main()
 
                     ImGui::InputText("Date", new_transaction.date, sizeof(new_transaction.date));
                     ImGui::InputText("Description", new_transaction.description, sizeof(new_transaction.description));
-                    ImGui::InputText("From Account", new_transaction.fromAccount, sizeof(new_transaction.fromAccount));
-                    ImGui::InputText("To Account", new_transaction.toAccount, sizeof(new_transaction.toAccount));
+
+                    if (ImGui::BeginCombo("##FromAccount", accounts[_fromAccountIndex].c_str())) {
+                        for (int i = 0; i < accounts.size(); ++i) {
+                            const bool isSelected = (_fromAccountIndex == i);
+                            if (ImGui::Selectable(accounts[i].c_str(), isSelected)) _fromAccountIndex = i;
+                            if (isSelected) ImGui::SetItemDefaultFocus();
+                        }
+                        ImGui::EndCombo();
+                    }
+                    ImGui::SameLine(); ImGui::Text("From Account");
+                    new_transaction.fromAccount = accounts[_fromAccountIndex];
+
+                    if (ImGui::BeginCombo("##ToAccount", accounts[_toAccountIndex].c_str())) {
+                        for (int i = 0; i < accounts.size(); ++i) {
+                            const bool isSelected = (_toAccountIndex == i);
+                            if (ImGui::Selectable(accounts[i].c_str(), isSelected)) _toAccountIndex = i;
+                            if (isSelected) ImGui::SetItemDefaultFocus();
+                        }
+                        ImGui::EndCombo();
+                    }
+                    ImGui::SameLine(); ImGui::Text("To Account");
+                    new_transaction.toAccount = accounts[_toAccountIndex];
+
                     ImGui::InputFloat("Amount ($)", &new_transaction.amount, 1.0f, 100.0f, "%.2f");
 
                     ImGui::Spacing();
