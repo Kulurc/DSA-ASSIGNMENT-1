@@ -13,6 +13,7 @@
 #include <string>
 #include <ctime>
 #include <cstring>
+#include <algorithm>
 
 // Window dimensions
 const unsigned int WINDOW_WIDTH = 1280;
@@ -64,6 +65,15 @@ struct Transaction
 
 // Global transaction storage
 std::vector<Transaction> g_transactions;
+
+
+constexpr int TEXT_BUFFER = 256;
+// category list
+std::vector<std::string> categories{"FOOD", "SOCIAL", "SHOPPING", "TRANSPORT", "EDUCATION"};
+std::string _currentCategory;
+char _inputCategoryBuffer[TEXT_BUFFER]{'\0'};
+static int _categoryIndex = 0;
+bool _inputFieldEmpty{ true };
 
 // Get current date as string
 std::string getCurrentDate()
@@ -458,6 +468,43 @@ int main()
                     ImGui::EndTable();
                 }
             }
+
+            //[!] Add/ Delete category base logic
+
+            ImGui::Text("Categories");
+            if (ImGui::InputText("##CategoryName", _inputCategoryBuffer, sizeof(_inputCategoryBuffer)));
+            ImGui::SameLine();
+
+            _inputFieldEmpty = _inputCategoryBuffer[0] == '\0';
+            if (_inputFieldEmpty) ImGui::BeginDisabled();
+
+            if (ImGui::Button("Add")) {
+                categories.emplace_back(_inputCategoryBuffer);
+                //need to clear the string
+                _inputCategoryBuffer[0] = '\0';
+            }
+
+            if (_inputFieldEmpty) ImGui::EndDisabled();
+
+            if (ImGui::BeginCombo("##Category", categories[_categoryIndex].c_str())) {
+
+                for (int i = 0; i < categories.size(); ++i) {
+                    const bool isSelected = (_categoryIndex == i);
+
+                    if (ImGui::Selectable(categories[i].c_str(), isSelected)) _categoryIndex = i;
+
+                    if (isSelected) ImGui::SetItemDefaultFocus();
+                }
+
+                ImGui::EndCombo();
+            }
+
+            ImGui::SameLine();
+            if (ImGui::Button("Delete")) {
+                categories.erase(categories.begin() + _categoryIndex);  //delete currently selected category
+                _categoryIndex = 0;                                     //set back to first element in list
+            }
+
 
             ImGui::Text("\nTotal Transactions: %zu", g_transactions.size());
             ImGui::End();
