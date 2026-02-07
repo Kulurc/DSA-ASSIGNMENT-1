@@ -38,10 +38,12 @@ enum class ViewMode
 struct Account {
     std::string accountName;
     float amount;
+    bool deleted;
 
     Account() {
         accountName = "";
         amount = 0.0f;
+        deleted = false;
     }
 
     void withdraw(float amt) { amount -= amt; }
@@ -49,6 +51,10 @@ struct Account {
     void transfer(Account *to, float amt) {
         amount -= amt;
         to->amount += amt;
+    }
+
+    bool operator==(const Account& other) const {
+        return (accountName == other.accountName);
     }
 };
 
@@ -93,11 +99,10 @@ static int _categoryIndex = 0;
 bool _inputFieldEmpty{ true };
 
 // accounts list 
-
+std::vector<Account> accounts;
 static int _fromAccountIndex = 0;
 static int _toAccountIndex = 0;
-
-std::vector<Account> accounts;
+char _inputAccountBuffer[TEXT_BUFFER]{ '\0' };
 
 // Get current date as string
 std::string getCurrentDate()
@@ -212,7 +217,15 @@ int main()
     int selected_tab_for_new = 0; // 0=Income, 1=Expense, 2=Transfer
     ViewMode view_mode = ViewMode::All;
 
+    //manage categories
     bool show_category_window = false;
+
+    //manage deleting account with balance
+    Account new_account;
+    bool show_add_account = false;
+    bool show_delete_account = false;
+    int deleteBufferAccountIndex{-1};
+    int transferBufferAccountIndex{-1};
 
     //add sample accounts
     {
@@ -230,6 +243,8 @@ int main()
         a3.accountName = "EMERGENCY";
         a3.amount = 0.0f;
         accounts.push_back(a3);
+
+        accounts.reserve(20);
     }
 
     // Add some sample transactions
@@ -559,14 +574,17 @@ int main()
 
             ImGui::Text("=== Accounts Breakdown ===");
 
-            if (ImGui::BeginTable("AccountsTable", 2, ImGuiTableFlags_Borders | ImGuiTableFlags_RowBg | ImGuiTableFlags_Resizable))
+            if (ImGui::BeginTable("AccountsTable", 3, ImGuiTableFlags_Borders | ImGuiTableFlags_RowBg | ImGuiTableFlags_Resizable))
             {
                 ImGui::TableSetupColumn("Account", ImGuiTableColumnFlags_WidthStretch);
                 ImGui::TableSetupColumn("Amount", ImGuiTableColumnFlags_WidthFixed, 100.0f);
+                ImGui::TableSetupColumn("Modify", ImGuiTableColumnFlags_WidthFixed, 100.0f);
                 ImGui::TableHeadersRow();
 
                 for (int i = 0; i < accounts.size(); i++)
                 {
+                    if (accounts[i].deleted) continue;  //skip if deleted
+
                     ImGui::PushID(i);
 
                     ImGui::TableNextRow();
@@ -581,16 +599,139 @@ int main()
                     ImVec4 textColour = accounts[i].amount > 0.0f ? green : red;
                     ImGui::TextColored(textColour, "$%.2f", accounts[i].amount);
 
+                    ImGui::TableNextColumn();
+                    if (ImGui::Button("Delete")) {
+                        if (accounts.size() > 1) {
+
+                            //there is balance inside
+                            if (accounts[i].amount != 0) {
+                                deleteBufferAccountIndex = i;
+                                show_delete_account = true;
+                            }
+                            else {
+                                accounts.erase(accounts.begin() + i);
+                            }
+                        }
+
+                    }
+
                     ImGui::PopID();
                 }
                 ImGui::EndTable();
             }
 
+            if (ImGui::Button("Add Account")) {
+                new_account = Account();
+                show_add_account = true;
+            }
+
+            ImGui::End();
+        }
+
+        //  add account indow
+        if (show_add_account) {
+            ImGui::SetWindowSize(ImVec2(400, 350), ImGuiCond_FirstUseEver);
+            ImGui::Begin("Add Account", &show_add_account);
+
+            ImGui::SetNextItemWidth(200);
+            if (ImGui::InputText("##AccountName", _inputAccountBuffer, sizeof(_inputAccountBuffer))) {}
+            ImGui::SameLine();  ImGui::Text("Account Name");
+
+            ImGui::InputFloat("Amount ($)", &new_account.amount, 1.0f, 100.0f, "%.2f");
+
+            _inputFieldEmpty = _inputAccountBuffer[0] == '\0';
+            if (_inputFieldEmpty) ImGui::BeginDisabled();
+
+            if (ImGui::Button("Add")) {
+                new_account.accountName = _inputAccountBuffer;
+
+                //make a new account and set add to list
+                accounts.emplace_back(new_account);
+
+                if (new_account.amount) {
+                    new_transaction = Transaction();
+
+                    new_transaction.amount = new_account.amount;
+                    new_transaction.fromAccount = &accounts[accounts.size() - 1];   //sets to the last one since u place it at the back
+                    new_transaction.category = "NEW ACCOUNT";
+                    new_transaction.type = TransactionType::Income;
+                    g_transactions.emplace_back(new_transaction);
+
+                    new_transaction = Transaction();
+                }
+
+                //need to clear the string
+                _inputAccountBuffer[0] = '\0';
+                show_add_account = false;
+                new_account = Account();    //reset
+            }
+
+            if (_inputFieldEmpty) ImGui::EndDisabled();
+
+            ImGui::End();
+        }
+
+        //  delete account window
+        if (show_delete_account) {
+            ImGui::SetWindowSize(ImVec2(400, 350), ImGuiCond_FirstUseEver);
+            ImGui::Begin("Delete Account", &show_delete_account);
+
+            ImGui::TextColored(ImVec4(1.0f, 0.4f, 0.4f, 1.0f),
+                "There is an outstanding balance of $%.2f in %s", accounts[deleteBufferAccountIndex].amount, accounts[deleteBufferAccountIndex].accountName.c_str());
+            ImGui::Text("Select an Account to transfer the balance to:");
+
+            if (ImGui::BeginCombo("##Account", accounts[_fromAccountIndex].accountName.c_str())) {
+                for (int i = 0; i < accounts.size(); ++i) {
+                    if (accounts[i].deleted) continue;  //skip if deleted
+                    //skip the one being deleted
+                    if (i == deleteBufferAccountIndex) continue;
+
+                    const bool isSelected = (_fromAccountIndex == i);
+                    if (ImGui::Selectable(accounts[i].accountName.c_str(), isSelected)) _fromAccountIndex = i;
+                    if (isSelected) ImGui::SetItemDefaultFocus();
+                }
+                ImGui::EndCombo();
+            }
+            transferBufferAccountIndex = _fromAccountIndex;
+            ImGui::SameLine(); ImGui::Text("Account");
+
+            if (ImGui::Button("Transfer")) {
+                //check that the selected account is not the same
+                if (accounts[transferBufferAccountIndex] != accounts[deleteBufferAccountIndex]) {
+
+                    std::string deletedAccountName = accounts[deleteBufferAccountIndex].accountName;
+                    accounts[deleteBufferAccountIndex].transfer(&accounts[transferBufferAccountIndex], accounts[deleteBufferAccountIndex].amount);
+                    accounts[deleteBufferAccountIndex].deleted = true;
+
+                    for (Transaction& t : g_transactions) {
+                        if (t.fromAccount->accountName == deletedAccountName) {
+                            t.fromAccount = &accounts[transferBufferAccountIndex];
+                        }
+                        if (t.toAccount && t.toAccount->accountName == deletedAccountName) {
+                            t.toAccount = &accounts[transferBufferAccountIndex];
+                        }
+                    }
+
+                    show_delete_account = false;
+
+                    //reset
+                    transferBufferAccountIndex = -1;
+                    deleteBufferAccountIndex = -1;   
+
+                    for (int i = 0; i < accounts.size(); ++i) {
+                        if (accounts[i].deleted) continue;
+
+                        //finds the first none deleted account
+                        _fromAccountIndex = i;
+                        _toAccountIndex = i;
+                        break;
+                    }
+                }
+            }
             ImGui::End();
         }
 
         // category window
-
         if (show_category_window) {
             ImGui::SetWindowSize(ImVec2(400, 350), ImGuiCond_FirstUseEver);
             ImGui::Begin("Categories", &show_category_window);
@@ -660,6 +801,8 @@ int main()
                     
                     if (ImGui::BeginCombo("##Account", accounts[_fromAccountIndex].accountName.c_str())) {
                         for (int i = 0; i < accounts.size(); ++i) {
+                            if (accounts[i].deleted) continue;  //skip if deleted
+
                             const bool isSelected = (_fromAccountIndex == i);
                             if(ImGui::Selectable(accounts[i].accountName.c_str(), isSelected)) _fromAccountIndex = i;
                             if (isSelected) ImGui::SetItemDefaultFocus();
@@ -709,6 +852,8 @@ int main()
                     
                     if (ImGui::BeginCombo("##Account", accounts[_fromAccountIndex].accountName.c_str())) {
                         for (int i = 0; i < accounts.size(); ++i) {
+                            if (accounts[i].deleted) continue;  //skip if deleted
+
                             const bool isSelected = (_fromAccountIndex == i);
                             if (ImGui::Selectable(accounts[i].accountName.c_str(), isSelected)) _fromAccountIndex = i;
                             if (isSelected) ImGui::SetItemDefaultFocus();
@@ -758,6 +903,8 @@ int main()
 
                     if (ImGui::BeginCombo("##FromAccount", accounts[_fromAccountIndex].accountName.c_str())) {
                         for (int i = 0; i < accounts.size(); ++i) {
+                            if (accounts[i].deleted) continue;  //skip if deleted
+
                             const bool isSelected = (_fromAccountIndex == i);
                             if (ImGui::Selectable(accounts[i].accountName.c_str(), isSelected)) _fromAccountIndex = i;
                             if (isSelected) ImGui::SetItemDefaultFocus();
@@ -769,6 +916,8 @@ int main()
 
                     if (ImGui::BeginCombo("##ToAccount", accounts[_toAccountIndex].accountName.c_str())) {
                         for (int i = 0; i < accounts.size(); ++i) {
+                            if (accounts[i].deleted) continue;  //skip if deleted
+
                             const bool isSelected = (_toAccountIndex == i);
                             if (ImGui::Selectable(accounts[i].accountName.c_str(), isSelected)) _toAccountIndex = i;
                             if (isSelected) ImGui::SetItemDefaultFocus();
